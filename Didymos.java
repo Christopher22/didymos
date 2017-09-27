@@ -65,20 +65,20 @@ public class Didymos extends TeamRobot {
         }
     }
 
-    public static class Report implements Serializable {
+    public static class Report<E extends Serializable> implements Serializable {
         public enum ReportType {
-            Team, Enemy;
+            CurrentPosition, GoalPosition, Enemy;
         }
 
-        private final Status m_status;
+        private final E m_status;
         private final ReportType m_type;
 
-        public Report(ReportType type, Status status) {
+        public Report(ReportType type, E status) {
             this.m_status = status;
             this.m_type = type;
         }
 
-        public Status getStatus() {
+        public E getPayload() {
             return m_status;
         }
 
@@ -88,6 +88,7 @@ public class Didymos extends TeamRobot {
     }
 
     private History m_friend, m_enemy;
+    private Point2D.Double m_goal;
 
     @Override
     public void run() {
@@ -107,15 +108,8 @@ public class Didymos extends TeamRobot {
         if (this.isTeammate(e.getName())) {
             this.m_friend.addStatus(new Status(this, e));
             return;
-        }
-
-        this.m_enemy.addStatus(new Status(this, e));
-
-        try {
-            this.broadcastMessage(new Report(Report.ReportType.Team, new Status(this)));
-            this.broadcastMessage(new Report(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
-        } catch (Exception ex) {
-            this.out.println("[ERROR] Error during result transmission");
+        } else {
+            this.m_enemy.addStatus(new Status(this, e));
         }
 
         final double radarTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getRadarHeadingRadians();
@@ -124,6 +118,17 @@ public class Didymos extends TeamRobot {
         final double gunTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getGunHeadingRadians();
         this.setTurnGunRightRadians(Utils.normalRelativeAngle(gunTurn));
 
+        final Point2D.Double nextGoal = this.getNextTarget();
+
+        try {
+            this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
+            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
+            this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
+        } catch (Exception ex) {
+            this.out.println("[ERROR] Error during result transmission");
+        }
+
+        this.goTo((int) nextGoal.getX(), (int) nextGoal.getY());
         this.execute();
     }
 
@@ -133,14 +138,17 @@ public class Didymos extends TeamRobot {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void onMessageReceived(MessageEvent event) {
-        Report report = (Report) event.getMessage();
-        switch (report.GetType()) {
-        case Team:
-            this.m_friend.addStatus(report.getStatus());
+        switch (((Report) event.getMessage()).GetType()) {
+        case CurrentPosition:
+            this.m_friend.addStatus(((Report<Status>) event.getMessage()).getPayload());
+            break;
+        case GoalPosition:
+            this.m_goal = ((Report<Point2D.Double>) event.getMessage()).getPayload();
             break;
         case Enemy:
-            this.m_enemy.addStatus(report.getStatus());
+            this.m_enemy.addStatus(((Report<Status>) event.getMessage()).getPayload());
             break;
         }
     }
@@ -158,5 +166,49 @@ public class Didymos extends TeamRobot {
             g.fillRect((int) this.m_friend.getLastStatus().getX() - 20, (int) this.m_friend.getLastStatus().getY() - 20,
                     40, 40);
         }
+
+        if (this.m_goal != null) {
+            g.setColor(new Color(0xff, 0x00, 0x00));
+            g.fillOval((int) this.m_goal.getX() - 4, (int) this.m_goal.getY(), 8, 8);
+        }
+    }
+
+    private Point2D.Double getNextTarget() {
+        final Status friend = this.m_friend.getLastStatus(), enemy = this.m_enemy.getLastStatus();
+
+        // TODO: CHECK FRIEND IS LIVING
+        if (friend != null && this.getEnergy() < friend.getEnergy()) {
+            final double xFactor = Math.tan(45) * -(this.m_goal.getY() - enemy.getY()),
+                    yFactor = Math.tan(45) * (this.m_goal.getX() - enemy.getX());
+
+            final Point2D.Double p1 = this
+                    .getPointInBattlefield(new Point2D.Double(enemy.getX() + xFactor, enemy.getY() + yFactor));
+
+            final Point2D.Double p2 = this
+                    .getPointInBattlefield(new Point2D.Double(enemy.getX() - xFactor, enemy.getY() - yFactor));
+
+            return (p1.distance(this.getX(), this.getY()) <= p2.distance(this.getX(), this.getY())) ? p1 : p2;
+        } else {
+            final double enemyDistance = enemy.distance(this.getX(), this.getY());
+            final double safeDistanceFraction = (enemyDistance - this.getWidth() * 2) / enemyDistance;
+
+            return new Point2D.Double((1 - safeDistanceFraction) * this.getX() + safeDistanceFraction * enemy.getX(),
+                    (1 - safeDistanceFraction) * this.getY() + safeDistanceFraction * enemy.getY());
+        }
+    }
+
+    private void goTo(int x, int y) {
+        double a;
+        this.setTurnRightRadians(
+                Math.tan(a = Math.atan2(x -= (int) this.getX(), y -= (int) this.getY()) - this.getHeadingRadians()));
+        this.setAhead(Math.hypot(x, y) * Math.cos(a));
+    }
+
+    private Point2D.Double getPointInBattlefield(Point2D.Double target) {
+        final double x = Math.min(Math.max(this.getWidth(), target.getX()),
+                this.getBattleFieldWidth() - this.getWidth());
+        final double y = Math.min(Math.max(this.getHeight(), target.getY()),
+                this.getBattleFieldHeight() - this.getHeight());
+        return new Point2D.Double(x, y);
     }
 }
