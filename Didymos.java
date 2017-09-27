@@ -12,13 +12,14 @@ import java.util.ArrayDeque;
 public class Didymos extends TeamRobot {
 
     public static class Status extends Point2D.Double implements Serializable {
-        private final double m_energy;
+        private final double m_energy, m_heading;
         private final long m_turn;
 
         public Status(Robot robot) {
             super(robot.getX(), robot.getY());
             this.m_energy = robot.getEnergy();
             this.m_turn = robot.getTime();
+            this.m_heading = robot.getHeading();
         }
 
         public Status(Robot robot, ScannedRobotEvent enemy) {
@@ -29,9 +30,14 @@ public class Didymos extends TeamRobot {
 
             this.m_energy = enemy.getEnergy();
             this.m_turn = robot.getTime();
+            this.m_heading = enemy.getHeading();
         }
 
         public double getEnergy() {
+            return m_energy;
+        }
+
+        public double getHeading() {
             return m_energy;
         }
 
@@ -62,6 +68,35 @@ public class Didymos extends TeamRobot {
 
         public Status getLastStatus() {
             return this.m_status.peekFirst();
+        }
+
+        public Point2D.Double predictPosition(final long turn) {
+            if (this.m_status.size() < 2) {
+                return this.getLastStatus();
+            }
+
+            // This algorithm is highly inspired by IBM (https://www.ibm.com/developerworks/library/j-circular/) 
+            final Status last = this.getLastStatus(), secondLast = (Status) (this.m_status.toArray()[1]);
+            final double headingChanged = last.getHeading() - secondLast.getHeading();
+            final double diff = turn - last.getTurn();
+            final double speed = last.distanceSq(secondLast) / (last.getTurn() - secondLast.getTurn());
+
+            double newX, newY;
+            if (Math.abs(headingChanged) > 0.00001) {
+                // Choose circular targetting...
+                double radius = speed / headingChanged;
+                double tothead = diff * headingChanged;
+                newY = last.getY() + (Math.sin(last.getHeading() + tothead) * radius)
+                        - (Math.sin(last.getHeading()) * radius);
+                newX = last.getX() + (Math.cos(last.getHeading()) * radius)
+                        - (Math.cos(last.getHeading() + tothead) * radius);
+            } else {
+                // ... or the linear one.
+                newY = last.getY() + Math.cos(last.getHeading()) * speed * diff;
+                newX = last.getX() + Math.sin(last.getHeading()) * speed * diff;
+            }
+
+            return new Point2D.Double(newX, newY);
         }
     }
 
