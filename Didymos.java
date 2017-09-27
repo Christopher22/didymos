@@ -147,28 +147,10 @@ public class Didymos extends TeamRobot {
             this.m_enemy.addStatus(new Status(this, e));
         }
 
-        final double radarTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getRadarHeadingRadians();
-        this.setTurnRadarRightRadians(1.95 * Utils.normalRelativeAngle(radarTurn));
+        this.handleRadar(e);
+        this.handleGun(e);
+        this.handleMovement(e);
 
-        final double gunTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getGunHeadingRadians();
-        this.setTurnGunRightRadians(Utils.normalRelativeAngle(gunTurn));
-
-        if (e.getDistance() < 150 && this.getGunHeat() == 0 && Math.abs(e.getDistance()
-                + (this.m_friend.getLastStatus().distance(this.getX(), this.getY()) - e.getDistance()) / 2) > this
-                        .getWidth() * 2) {
-            this.setFire(3);
-        }
-
-        final Point2D.Double nextGoal = this.getNextTarget();
-        try {
-            this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
-            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
-            this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
-        } catch (Exception ex) {
-            this.out.println("[ERROR] Error during result transmission");
-        }
-
-        this.goTo((int) nextGoal.getX(), (int) nextGoal.getY());
         this.execute();
     }
 
@@ -211,6 +193,35 @@ public class Didymos extends TeamRobot {
             g.setColor(new Color(0xff, 0x00, 0x00));
             g.fillOval((int) this.m_goal.getX() - 4, (int) this.m_goal.getY(), 8, 8);
         }
+    }
+
+    private void handleRadar(ScannedRobotEvent e) {
+        final double radarTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getRadarHeadingRadians();
+        this.setTurnRadarRightRadians(1.95 * Utils.normalRelativeAngle(radarTurn));
+    }
+
+    private void handleGun(ScannedRobotEvent e) {
+        final double gunTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getGunHeadingRadians();
+        this.setTurnGunRightRadians(Utils.normalRelativeAngle(gunTurn));
+
+        if (e.getDistance() < 150 && this.getGunHeat() == 0 && Math.abs(e.getDistance()
+                + (this.m_friend.getLastStatus().distance(this.getX(), this.getY()) - e.getDistance()) / 2) > this
+                        .getWidth() * 2) {
+            this.setFire(3);
+        }
+    }
+
+    private void handleMovement(ScannedRobotEvent e) {
+        final Point2D.Double nextGoal = this.getNextTarget();
+        try {
+            this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
+            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
+            this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
+        } catch (Exception ex) {
+            this.out.println("[ERROR] Error during result transmission");
+        }
+
+        this.goTo((int) nextGoal.getX(), (int) nextGoal.getY());
     }
 
     private Point2D.Double getNextTarget() {
