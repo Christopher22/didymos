@@ -1,0 +1,7 @@
+#Robocode robot team
+#Thu Sep 28 09:38:06 NZDT 2017
+team.members=didymos.Didymos*,didymos.Didymos*
+team.author.name=Christopher Gundler
+robocode.version=1.9.2.6
+team.webpage=https\://github.com/Christopher22/didymos
+team.description=A pair of evil twins optimized for 2 vs 1.
