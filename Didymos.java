@@ -118,8 +118,13 @@ public class Didymos extends TeamRobot {
         final double gunTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getGunHeadingRadians();
         this.setTurnGunRightRadians(Utils.normalRelativeAngle(gunTurn));
 
-        final Point2D.Double nextGoal = this.getNextTarget();
+        if (e.getDistance() < 150 && this.getGunHeat() == 0 && Math.abs(e.getDistance()
+                + (this.m_friend.getLastStatus().distance(this.getX(), this.getY()) - e.getDistance()) / 2) > this
+                        .getWidth() * 2) {
+            this.setFire(3);
+        }
 
+        final Point2D.Double nextGoal = this.getNextTarget();
         try {
             this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
             this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
