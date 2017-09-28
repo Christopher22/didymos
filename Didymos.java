@@ -162,6 +162,17 @@ public class Didymos extends TeamRobot {
         }
     }
 
+    @Override
+    public void onHitRobot(HitRobotEvent event) {
+        if (!this.isTeammate(event.getName()) || this.isAssistant()) {
+            if (event.getBearing() > -90 && event.getBearing() <= 90) {
+                this.back(50);
+            } else {
+                this.ahead(50);
+            }
+        }
+    }
+
     private void handleRadar(ScannedRobotEvent e) {
         final double radarTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getRadarHeadingRadians();
         this.setTurnRadarRightRadians(1.95 * Utils.normalRelativeAngle(radarTurn));
@@ -184,7 +195,15 @@ public class Didymos extends TeamRobot {
         try {
             this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
             this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
-            this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
+
+            // Try to avoid collision by stopping
+            final Status friend = this.m_friend.getLastStatus();
+            if (this.isAssistant() && friend != null && friend.distance(getX(), getY()) <= getWidth() * 2.5) {
+                this.stop();
+                return;
+            } else {
+                this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
+            }
         } catch (Exception ex) {
             this.out.println("[ERROR] Error during result transmission");
         }
@@ -196,10 +215,9 @@ public class Didymos extends TeamRobot {
     }
 
     private Point2D.Double getNextTarget() {
-        final Status friend = this.m_friend.getLastStatus(), enemy = this.m_enemy.getLastStatus();
+        final Status enemy = this.m_enemy.getLastStatus();
 
-        if (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()
-                && this.getTime() - friend.getTurn() < 10) {
+        if (this.isAssistant()) {
             final double xFactor = Math.tan(45) * -(this.m_goal.getY() - enemy.getY()),
                     yFactor = Math.tan(45) * (this.m_goal.getX() - enemy.getX());
 
@@ -220,10 +238,16 @@ public class Didymos extends TeamRobot {
     }
 
     private Point2D.Double getPointInBattlefield(Point2D.Double target) {
-        final double x = Math.min(Math.max(this.getWidth() * 1.5, target.getX()),
-                this.getBattleFieldWidth() - this.getWidth() * 1.5);
-        final double y = Math.min(Math.max(this.getHeight() * 1.5, target.getY()),
-                this.getBattleFieldHeight() - this.getHeight() * 1.5);
+        final double x = Math.min(Math.max(this.getWidth() * 2, target.getX()),
+                this.getBattleFieldWidth() - this.getWidth() * 2);
+        final double y = Math.min(Math.max(this.getHeight() * 2, target.getY()),
+                this.getBattleFieldHeight() - this.getHeight() * 2);
         return new Point2D.Double(x, y);
+    }
+
+    private boolean isAssistant() {
+        final Status friend = this.m_friend.getLastStatus();
+        return (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()
+                && this.getTime() - friend.getTurn() < 10);
     }
 }
