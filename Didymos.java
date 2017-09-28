@@ -12,14 +12,13 @@ import java.util.ArrayDeque;
 public class Didymos extends TeamRobot {
 
     public static class Status extends Point2D.Double implements Serializable {
-        private final double m_energy, m_heading;
+        private final double m_energy;
         private final long m_turn;
 
         public Status(Robot robot) {
             super(robot.getX(), robot.getY());
             this.m_energy = robot.getEnergy();
             this.m_turn = robot.getTime();
-            this.m_heading = robot.getHeading();
         }
 
         public Status(Robot robot, ScannedRobotEvent enemy) {
@@ -30,14 +29,9 @@ public class Didymos extends TeamRobot {
 
             this.m_energy = enemy.getEnergy();
             this.m_turn = robot.getTime();
-            this.m_heading = enemy.getHeading();
         }
 
         public double getEnergy() {
-            return m_energy;
-        }
-
-        public double getHeading() {
             return m_energy;
         }
 
@@ -69,35 +63,6 @@ public class Didymos extends TeamRobot {
         public Status getLastStatus() {
             return this.m_status.peekFirst();
         }
-
-        public Point2D.Double predictPosition(final long turn) {
-            if (this.m_status.size() < 2) {
-                return this.getLastStatus();
-            }
-
-            // This algorithm is highly inspired by IBM (https://www.ibm.com/developerworks/library/j-circular/) 
-            final Status last = this.getLastStatus(), secondLast = (Status) (this.m_status.toArray()[1]);
-            final double headingChanged = last.getHeading() - secondLast.getHeading();
-            final double diff = turn - last.getTurn();
-            final double speed = last.distanceSq(secondLast) / (last.getTurn() - secondLast.getTurn());
-
-            double newX, newY;
-            if (Math.abs(headingChanged) > 0.00001) {
-                // Choose circular targetting...
-                double radius = speed / headingChanged;
-                double tothead = diff * headingChanged;
-                newY = last.getY() + (Math.sin(last.getHeading() + tothead) * radius)
-                        - (Math.sin(last.getHeading()) * radius);
-                newX = last.getX() + (Math.cos(last.getHeading()) * radius)
-                        - (Math.cos(last.getHeading() + tothead) * radius);
-            } else {
-                // ... or the linear one.
-                newY = last.getY() + Math.cos(last.getHeading()) * speed * diff;
-                newX = last.getX() + Math.sin(last.getHeading()) * speed * diff;
-            }
-
-            return new Point2D.Double(newX, newY);
-        }
     }
 
     public static class Report<E extends Serializable> implements Serializable {
@@ -121,6 +86,8 @@ public class Didymos extends TeamRobot {
             return m_type;
         }
     }
+
+    public static final double FIRE_POWER = 3.0;
 
     private History m_friend, m_enemy;
     private Point2D.Double m_goal;
@@ -201,13 +168,14 @@ public class Didymos extends TeamRobot {
     }
 
     private void handleGun(ScannedRobotEvent e) {
-        final double gunTurn = this.getHeadingRadians() + e.getBearingRadians() - this.getGunHeadingRadians();
-        this.setTurnGunRightRadians(Utils.normalRelativeAngle(gunTurn));
+        // Inspired by http://robowiki.net/wiki/Linear_Targeting
+        final double headOnBearing = getHeadingRadians() + e.getBearingRadians();
+        final double linearBearing = headOnBearing + Math.asin(
+                e.getVelocity() / Rules.getBulletSpeed(FIRE_POWER) * Math.sin(e.getHeadingRadians() - headOnBearing));
 
-        if (e.getDistance() < 150 && this.getGunHeat() == 0 && Math.abs(e.getDistance()
-                + (this.m_friend.getLastStatus().distance(this.getX(), this.getY()) - e.getDistance()) / 2) > this
-                        .getWidth() * 2) {
-            this.setFire(3);
+        this.setTurnGunRightRadians(Utils.normalRelativeAngle(linearBearing - this.getGunHeadingRadians()));
+        if (e.getDistance() < 150 && this.getGunHeat() == 0) {
+            setFire(FIRE_POWER);
         }
     }
 
@@ -228,7 +196,7 @@ public class Didymos extends TeamRobot {
         final Status friend = this.m_friend.getLastStatus(), enemy = this.m_enemy.getLastStatus();
 
         // TODO: CHECK FRIEND IS LIVING
-        if (friend != null && this.getEnergy() < friend.getEnergy()) {
+        if (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()) {
             final double xFactor = Math.tan(45) * -(this.m_goal.getY() - enemy.getY()),
                     yFactor = Math.tan(45) * (this.m_goal.getX() - enemy.getX());
 
@@ -256,10 +224,10 @@ public class Didymos extends TeamRobot {
     }
 
     private Point2D.Double getPointInBattlefield(Point2D.Double target) {
-        final double x = Math.min(Math.max(this.getWidth(), target.getX()),
-                this.getBattleFieldWidth() - this.getWidth());
-        final double y = Math.min(Math.max(this.getHeight(), target.getY()),
-                this.getBattleFieldHeight() - this.getHeight());
+        final double x = Math.min(Math.max(this.getWidth() * 1.5, target.getX()),
+                this.getBattleFieldWidth() - this.getWidth() * 1.5);
+        final double y = Math.min(Math.max(this.getHeight() * 1.5, target.getY()),
+                this.getBattleFieldHeight() - this.getHeight() * 1.5);
         return new Point2D.Double(x, y);
     }
 }
