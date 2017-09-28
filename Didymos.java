@@ -189,14 +189,17 @@ public class Didymos extends TeamRobot {
             this.out.println("[ERROR] Error during result transmission");
         }
 
-        this.goTo((int) nextGoal.getX(), (int) nextGoal.getY());
+        double angle;
+        this.setTurnRightRadians(Math.tan(
+                angle = Math.atan2(nextGoal.x -= this.getX(), nextGoal.y -= this.getY()) - this.getHeadingRadians()));
+        this.setAhead(Math.hypot(nextGoal.getX(), nextGoal.getY()) * Math.cos(angle));
     }
 
     private Point2D.Double getNextTarget() {
         final Status friend = this.m_friend.getLastStatus(), enemy = this.m_enemy.getLastStatus();
 
-        // TODO: CHECK FRIEND IS LIVING
-        if (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()) {
+        if (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()
+                && this.getTime() - friend.getTurn() < 10) {
             final double xFactor = Math.tan(45) * -(this.m_goal.getY() - enemy.getY()),
                     yFactor = Math.tan(45) * (this.m_goal.getX() - enemy.getX());
 
@@ -214,13 +217,6 @@ public class Didymos extends TeamRobot {
             return new Point2D.Double((1 - safeDistanceFraction) * this.getX() + safeDistanceFraction * enemy.getX(),
                     (1 - safeDistanceFraction) * this.getY() + safeDistanceFraction * enemy.getY());
         }
-    }
-
-    private void goTo(int x, int y) {
-        double a;
-        this.setTurnRightRadians(
-                Math.tan(a = Math.atan2(x -= (int) this.getX(), y -= (int) this.getY()) - this.getHeadingRadians()));
-        this.setAhead(Math.hypot(x, y) * Math.cos(a));
     }
 
     private Point2D.Double getPointInBattlefield(Point2D.Double target) {
