@@ -17,7 +17,7 @@ public class Didymos extends TeamRobot {
     /**
      * The status of a specific robot in a specific turn.
      */
-    public static class Status extends Point2D.Double implements Serializable {
+    public static abstract class Status extends Point2D.Double implements Serializable {
         private final double m_energy;
         private final long m_turn;
 
@@ -64,43 +64,101 @@ public class Didymos extends TeamRobot {
     }
 
     /**
-     * A report which may have different types and is to be sended between the robots.
+     * The status of the enemy in a specific turn.
      */
-    public static class Report<E extends Serializable> implements Serializable {
+    public static class Enemy extends Status {
         /**
-         * The type of the report.
+         * Creates a status from a ScannedRobotEvent.
+         * @param robot The robot which recieved the event.
+         * @param enemy The actual event.
          */
-        public enum ReportType {
-            CurrentPosition, GoalPosition, Enemy;
+        public Enemy(final Robot robot, final ScannedRobotEvent enemy) {
+            super(robot, enemy);
+        }
+    }
+
+    /**
+     * The status of one of the twins in a specific turn.
+     */
+    public static class TeamMember extends Status {
+        private final Point2D.Double m_goal;
+
+        /**
+         * Creates the status from the current state of a twin.
+         * @param robot The robot delivering the current parameters.
+         * @param goal The goal of the robot.
+         */
+        public TeamMember(final Robot robot, final Point2D.Double goal) {
+            super(robot);
+            this.m_goal = goal;
         }
 
-        private final E m_payload;
-        private final ReportType m_type;
-
         /**
-         * Creates a new report.
-         * @param type The type of report.
-         * @param status The actual payload.
-         */
-        public Report(ReportType type, E payload) {
-            this.m_payload = payload;
-            this.m_type = type;
+        * Creates a status from a ScannedRobotEvent.
+        * @param robot The robot which recieved the event.
+        * @param enemy The actual event.
+        * @param goal The known goal of the robot or 'null' to set a default.
+        */
+        public TeamMember(final Robot robot, final ScannedRobotEvent event, Point2D.Double goal) {
+            super(robot, event);
+            if (goal == null) {
+                goal = this;
+            }
+            this.m_goal = goal;
         }
 
         /**
-         * Return the payload.
-         * @return the payload.
+         * Returns the goal of the teammember.
+         * @return the goal.
          */
-        public E getPayload() {
-            return m_payload;
+        public Point2D.Double getGoal() {
+            return this.m_goal;
+        }
+    }
+
+    /**
+     * A message which is transmitted between the twins.
+     */
+    public static class Message implements Serializable {
+        private final Status m_status;
+        private final boolean m_isEnemy;
+
+        /**
+         * Creates a new message.
+         * @param status The status which should be sended.
+         */
+        public Message(Status status) {
+            this.m_status = status;
+            this.m_isEnemy = (status instanceof Enemy);
         }
 
         /**
-         * Returns the type of the report.
-         * @return the type of report.
+         * Checks, if the message contains data of the enemy.
+         * @return true, if the message contains data of the enemy.
          */
-        public ReportType GetType() {
-            return m_type;
+        public boolean isEnemyData() {
+            return this.m_isEnemy;
+        }
+
+        /**
+         * Returns the underlying status.
+         * @return the underlying status.
+         */
+        public Status getStatus() {
+            return this.m_status;
+        }
+
+        /**
+         * Sends a message to the other twin.
+         * @param robot The sender of the event.
+         * @param status The status which should be transmitted.
+         */
+        public static void send(TeamRobot sender, Status status) {
+            try {
+                sender.broadcastMessage(new Message(status));
+            } catch (Exception ex) {
+                sender.out.println("[ERROR] Error during result transmission");
+            }
         }
     }
 
@@ -109,8 +167,8 @@ public class Didymos extends TeamRobot {
      */
     public static final double FIRE_POWER = 3.0;
 
-    private Status m_friend, m_enemy;
-    private Point2D.Double m_goal;
+    private TeamMember m_friend;
+    private Enemy m_enemy;
 
     @Override
     public void run() {
@@ -126,11 +184,14 @@ public class Didymos extends TeamRobot {
     public void onScannedRobot(ScannedRobotEvent e) {
         // Save status
         if (this.isTeammate(e.getName())) {
-            this.m_friend = new Status(this, e);
+            this.m_friend = new TeamMember(this, e, (this.m_friend != null ? this.m_friend.getGoal() : null));
             return;
         } else {
-            this.m_enemy = new Status(this, e);
+            this.m_enemy = new Enemy(this, e);
         }
+
+        // Send the current status to the other robot.
+        Message.send(this, this.m_enemy);
 
         // Handle the different robot parts in parallel.
         this.handleRadar(e);
@@ -148,16 +209,11 @@ public class Didymos extends TeamRobot {
     @Override
     @SuppressWarnings("unchecked")
     public void onMessageReceived(MessageEvent event) {
-        switch (((Report) event.getMessage()).GetType()) {
-        case CurrentPosition:
-            this.m_friend = ((Report<Status>) event.getMessage()).getPayload();
-            break;
-        case GoalPosition:
-            this.m_goal = ((Report<Point2D.Double>) event.getMessage()).getPayload();
-            break;
-        case Enemy:
-            this.m_enemy = ((Report<Status>) event.getMessage()).getPayload();
-            break;
+        Message message = (Message) event.getMessage();
+        if (message.isEnemyData()) {
+            this.m_enemy = (Enemy) message.getStatus();
+        } else {
+            this.m_friend = (TeamMember) message.getStatus();
         }
     }
 
@@ -171,11 +227,9 @@ public class Didymos extends TeamRobot {
         if (this.m_friend != null) {
             g.setColor(new Color(0x00, 0xff, 0x26, 0x80));
             g.fillRect((int) this.m_friend.getX() - 20, (int) this.m_friend.getY() - 20, 40, 40);
-        }
 
-        if (this.m_goal != null) {
             g.setColor(new Color(0xff, 0x00, 0x00));
-            g.fillOval((int) this.m_goal.getX() - 4, (int) this.m_goal.getY(), 8, 8);
+            g.fillOval((int) this.m_friend.getGoal().getX() - 4, (int) this.m_friend.getGoal().getY(), 8, 8);
         }
     }
 
@@ -222,27 +276,19 @@ public class Didymos extends TeamRobot {
      * @param e The ScannedRobotEvent event.
      */
     private void handleMovement(ScannedRobotEvent e) {
-        // Get the next waypoint.
-        final Point2D.Double nextGoal = this.getNextTarget();
-
-        try {
-            // Send the current status to the other robot.
-            this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
-            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy));
-
-            // Try to avoid collision beforehand by stopping
-            if (this.isAssistant() && this.m_friend != null
-                    && this.m_friend.distance(this.getX(), this.getY()) <= this.getWidth() * 2.5) {
-                this.stop();
-                return;
-            } else {
-                this.broadcastMessage(new Report<>(Report.ReportType.GoalPosition, nextGoal));
-            }
-        } catch (Exception ex) {
-            this.out.println("[ERROR] Error during result transmission");
+        // Try to avoid collision beforehand by stopping
+        if (this.isAssistant() && this.m_friend != null
+                && this.m_friend.distance(this.getX(), this.getY()) <= this.getWidth() * 2.5) {
+            this.stop();
+            Message.send(this, new TeamMember(this, new Point2D.Double(this.getX(), this.getY())));
+            return;
         }
 
-        // Move to the nex waypoint.
+        // Get the next waypoint.
+        final Point2D.Double nextGoal = this.getNextTarget();
+        Message.send(this, new TeamMember(this, nextGoal));
+
+        // Move to the next waypoint.
         double angle;
         this.setTurnRightRadians(Math.tan(
                 angle = Math.atan2(nextGoal.x -= this.getX(), nextGoal.y -= this.getY()) - this.getHeadingRadians()));
@@ -257,8 +303,8 @@ public class Didymos extends TeamRobot {
         // If the robot is not the leader ...
         if (this.isAssistant()) {
             // Generate the two right angle position on both side of the enemy...
-            final double xFactor = Math.tan(45) * -(this.m_goal.getY() - this.m_enemy.getY()),
-                    yFactor = Math.tan(45) * (this.m_goal.getX() - this.m_enemy.getX());
+            final double xFactor = Math.tan(45) * -(this.m_friend.getGoal().getY() - this.m_enemy.getY()),
+                    yFactor = Math.tan(45) * (this.m_friend.getGoal().getX() - this.m_enemy.getX());
 
             final Point2D.Double p1 = this.getPointInBattlefield(
                     new Point2D.Double(this.m_enemy.getX() + xFactor, this.m_enemy.getY() + yFactor));
@@ -296,7 +342,7 @@ public class Didymos extends TeamRobot {
      * @return true, if the robot is not the leader.
      */
     private boolean isAssistant() {
-        return (this.m_friend != null && this.m_goal != null && this.getEnergy() < this.m_friend.getEnergy()
+        return (this.m_friend != null && this.m_friend.getGoal() != null && this.getEnergy() < this.m_friend.getEnergy()
                 && this.getTime() - this.m_friend.getTurn() < 10);
     }
 }
