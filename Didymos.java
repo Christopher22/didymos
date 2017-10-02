@@ -64,48 +64,6 @@ public class Didymos extends TeamRobot {
     }
 
     /**
-     * A history of the status of a robot. 
-     */
-    public static class History {
-        private ArrayDeque<Status> m_payload;
-
-        /**
-         * Creates a new history.
-         */
-        public History() {
-            m_payload = new ArrayDeque<>();
-        }
-
-        /**
-         * Adds a status, if possible.
-         * @param status The status which is to be added.
-         * @return true if the insertion was sucessfull.
-         */
-        public boolean addStatus(Status status) {
-            // Filter out already known status
-            if (this.m_payload.size() > 0 && this.getLastStatus().getTurn() >= status.getTurn()) {
-                return false;
-            }
-
-            // Discard old entries
-            if (this.m_payload.size() > 3) {
-                this.m_payload.pollLast();
-            }
-
-            this.m_payload.push(status);
-            return true;
-        }
-
-        /**
-         * Returns the most current status.
-         * @return the most current status or NULL else.
-         */
-        public Status getLastStatus() {
-            return this.m_payload.peekFirst();
-        }
-    }
-
-    /**
      * A report which may have different types and is to be sended between the robots.
      */
     public static class Report<E extends Serializable> implements Serializable {
@@ -151,16 +109,13 @@ public class Didymos extends TeamRobot {
      */
     public static final double FIRE_POWER = 3.0;
 
-    private History m_friend, m_enemy;
+    private Status m_friend, m_enemy;
     private Point2D.Double m_goal;
 
     @Override
     public void run() {
         this.setAdjustRadarForRobotTurn(true);
         this.setAdjustGunForRobotTurn(true);
-
-        this.m_friend = new History();
-        this.m_enemy = new History();
 
         while (true) {
             this.turnRadarRightRadians(Double.POSITIVE_INFINITY);
@@ -171,10 +126,10 @@ public class Didymos extends TeamRobot {
     public void onScannedRobot(ScannedRobotEvent e) {
         // Save status
         if (this.isTeammate(e.getName())) {
-            this.m_friend.addStatus(new Status(this, e));
+            this.m_friend = new Status(this, e);
             return;
         } else {
-            this.m_enemy.addStatus(new Status(this, e));
+            this.m_enemy = new Status(this, e);
         }
 
         // Handle the different robot parts in parallel.
@@ -195,29 +150,27 @@ public class Didymos extends TeamRobot {
     public void onMessageReceived(MessageEvent event) {
         switch (((Report) event.getMessage()).GetType()) {
         case CurrentPosition:
-            this.m_friend.addStatus(((Report<Status>) event.getMessage()).getPayload());
+            this.m_friend = ((Report<Status>) event.getMessage()).getPayload();
             break;
         case GoalPosition:
             this.m_goal = ((Report<Point2D.Double>) event.getMessage()).getPayload();
             break;
         case Enemy:
-            this.m_enemy.addStatus(((Report<Status>) event.getMessage()).getPayload());
+            this.m_enemy = ((Report<Status>) event.getMessage()).getPayload();
             break;
         }
     }
 
     @Override
     public void onPaint(Graphics2D g) {
-        if (this.m_enemy.getLastStatus() != null) {
+        if (this.m_enemy != null) {
             g.setColor(new Color(0xff, 0x00, 0x00, 0x80));
-            g.fillRect((int) this.m_enemy.getLastStatus().getX() - 20, (int) this.m_enemy.getLastStatus().getY() - 20,
-                    40, 40);
+            g.fillRect((int) this.m_enemy.getX() - 20, (int) this.m_enemy.getY() - 20, 40, 40);
         }
 
-        if (this.m_friend.getLastStatus() != null) {
+        if (this.m_friend != null) {
             g.setColor(new Color(0x00, 0xff, 0x26, 0x80));
-            g.fillRect((int) this.m_friend.getLastStatus().getX() - 20, (int) this.m_friend.getLastStatus().getY() - 20,
-                    40, 40);
+            g.fillRect((int) this.m_friend.getX() - 20, (int) this.m_friend.getY() - 20, 40, 40);
         }
 
         if (this.m_goal != null) {
@@ -260,7 +213,7 @@ public class Didymos extends TeamRobot {
 
         // Fire, if suitable.
         if (e.getDistance() < 150 && this.getGunHeat() == 0) {
-            setFire(FIRE_POWER);
+            this.setFire(FIRE_POWER);
         }
     }
 
@@ -275,11 +228,11 @@ public class Didymos extends TeamRobot {
         try {
             // Send the current status to the other robot.
             this.broadcastMessage(new Report<>(Report.ReportType.CurrentPosition, new Status(this)));
-            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy.getLastStatus()));
+            this.broadcastMessage(new Report<>(Report.ReportType.Enemy, this.m_enemy));
 
             // Try to avoid collision beforehand by stopping
-            final Status friend = this.m_friend.getLastStatus();
-            if (this.isAssistant() && friend != null && friend.distance(getX(), getY()) <= getWidth() * 2.5) {
+            if (this.isAssistant() && this.m_friend != null
+                    && this.m_friend.distance(this.getX(), this.getY()) <= this.getWidth() * 2.5) {
                 this.stop();
                 return;
             } else {
@@ -301,28 +254,27 @@ public class Didymos extends TeamRobot {
      * @return the position of the next waypoint.
      */
     private Point2D.Double getNextTarget() {
-        final Status enemy = this.m_enemy.getLastStatus();
-
         // If the robot is not the leader ...
         if (this.isAssistant()) {
             // Generate the two right angle position on both side of the enemy...
-            final double xFactor = Math.tan(45) * -(this.m_goal.getY() - enemy.getY()),
-                    yFactor = Math.tan(45) * (this.m_goal.getX() - enemy.getX());
+            final double xFactor = Math.tan(45) * -(this.m_goal.getY() - this.m_enemy.getY()),
+                    yFactor = Math.tan(45) * (this.m_goal.getX() - this.m_enemy.getX());
 
-            final Point2D.Double p1 = this
-                    .getPointInBattlefield(new Point2D.Double(enemy.getX() + xFactor, enemy.getY() + yFactor));
-            final Point2D.Double p2 = this
-                    .getPointInBattlefield(new Point2D.Double(enemy.getX() - xFactor, enemy.getY() - yFactor));
+            final Point2D.Double p1 = this.getPointInBattlefield(
+                    new Point2D.Double(this.m_enemy.getX() + xFactor, this.m_enemy.getY() + yFactor));
+            final Point2D.Double p2 = this.getPointInBattlefield(
+                    new Point2D.Double(this.m_enemy.getX() - xFactor, this.m_enemy.getY() - yFactor));
 
             // ... and choose the one which is nearby.
             return (p1.distance(this.getX(), this.getY()) <= p2.distance(this.getX(), this.getY())) ? p1 : p2;
         } else {
             // Move to the enemy while having a secure distance.
-            final double enemyDistance = enemy.distance(this.getX(), this.getY());
+            final double enemyDistance = this.m_enemy.distance(this.getX(), this.getY());
             final double safeDistanceFraction = (enemyDistance - this.getWidth() * 2) / enemyDistance;
 
-            return new Point2D.Double((1 - safeDistanceFraction) * this.getX() + safeDistanceFraction * enemy.getX(),
-                    (1 - safeDistanceFraction) * this.getY() + safeDistanceFraction * enemy.getY());
+            return new Point2D.Double(
+                    (1 - safeDistanceFraction) * this.getX() + safeDistanceFraction * this.m_enemy.getX(),
+                    (1 - safeDistanceFraction) * this.getY() + safeDistanceFraction * this.m_enemy.getY());
         }
     }
 
@@ -344,8 +296,7 @@ public class Didymos extends TeamRobot {
      * @return true, if the robot is not the leader.
      */
     private boolean isAssistant() {
-        final Status friend = this.m_friend.getLastStatus();
-        return (friend != null && this.m_goal != null && this.getEnergy() < friend.getEnergy()
-                && this.getTime() - friend.getTurn() < 10);
+        return (this.m_friend != null && this.m_goal != null && this.getEnergy() < this.m_friend.getEnergy()
+                && this.getTime() - this.m_friend.getTurn() < 10);
     }
 }
