@@ -1,4 +1,4 @@
-package didymos;
+package comp771_team;
 
 import robocode.*;
 import robocode.util.Utils;
@@ -7,7 +7,6 @@ import java.awt.Graphics2D;
 import java.awt.Color;
 import java.awt.geom.Point2D;
 import java.io.Serializable;
-import java.util.ArrayDeque;
 
 /**
  * A twin robot optimized for fighting a 2v1 battle.
@@ -175,6 +174,7 @@ public class Didymos extends TeamRobot {
         this.setAdjustRadarForRobotTurn(true);
         this.setAdjustGunForRobotTurn(true);
 
+        // Continue scanning even after losing the robot.
         while (true) {
             this.turnRadarRightRadians(Double.POSITIVE_INFINITY);
         }
@@ -182,7 +182,7 @@ public class Didymos extends TeamRobot {
 
     @Override
     public void onScannedRobot(ScannedRobotEvent e) {
-        // Save status
+        // Save status.
         if (this.isTeammate(e.getName())) {
             this.m_friend = new TeamMember(this, e, (this.m_friend != null ? this.m_friend.getGoal() : null));
             return;
@@ -217,11 +217,13 @@ public class Didymos extends TeamRobot {
 
     @Override
     public void onPaint(Graphics2D g) {
+        // Draw enemy.
         if (this.m_enemy != null) {
             g.setColor(new Color(0xff, 0x00, 0x00, 0x80));
             g.fillRect((int) this.m_enemy.getX() - 20, (int) this.m_enemy.getY() - 20, 40, 40);
         }
 
+        // Draw friend with its goal.
         if (this.m_friend != null) {
             g.setColor(new Color(0x00, 0xff, 0x26, 0x80));
             g.fillRect((int) this.m_friend.getX() - 20, (int) this.m_friend.getY() - 20, 40, 40);
@@ -233,6 +235,7 @@ public class Didymos extends TeamRobot {
 
     @Override
     public void onHitRobot(HitRobotEvent event) {
+        // Only one of the robots have to move, the other might continue to fire.
         if (!this.isTeammate(event.getName()) || this.isAssistant()) {
             if (event.getBearing() > -90 && event.getBearing() <= 90) {
                 this.back(50);
@@ -288,7 +291,7 @@ public class Didymos extends TeamRobot {
         final Point2D.Double nextGoal = this.getNextTarget();
         Message.send(this, new TeamMember(this, nextGoal));
 
-        // Move to the next waypoint.
+        // Move to the next waypoint, inspired by http://robowiki.net/wiki/GoTo.
         double angle;
         this.setTurnRightRadians(Math.tan(
                 angle = Math.atan2(nextGoal.x -= this.getX(), nextGoal.y -= this.getY()) - this.getHeadingRadians()));
@@ -325,7 +328,7 @@ public class Didymos extends TeamRobot {
     }
 
     /**
-     * Normalized a point that it is safely reachable.
+     * Normalizes a point that it is safely reachable.
      * @param target The point which is to be normalized.
      * @return the normalized point.
      */
@@ -355,7 +358,7 @@ public class Didymos extends TeamRobot {
      */
     private static double getDistanceFromLine(final Point2D.Double lineCoord1, final Point2D.Double lineCoord2,
             final Point2D.Double point) {
-        // f(x) = ax + by + c
+        // Line: f(x) = ax + by + c
         final double a = lineCoord2.getX() - lineCoord1.getX();
         final double b = lineCoord2.getY() - lineCoord1.getY();
         final double c = lineCoord1.getX() * lineCoord2.getY() - lineCoord2.getX() * lineCoord1.getY();
