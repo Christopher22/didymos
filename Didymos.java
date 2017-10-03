@@ -186,11 +186,10 @@ public class Didymos extends TeamRobot {
         if (this.isTeammate(e.getName())) {
             this.m_friend = new TeamMember(this, e, (this.m_friend != null ? this.m_friend.getGoal() : null));
             return;
-        } else {
-            this.m_enemy = new Enemy(this, e);
         }
 
         // Send the current status to the other robot.
+        this.m_enemy = new Enemy(this, e);
         Message.send(this, this.m_enemy);
 
         // Handle the different robot parts in parallel.
@@ -207,7 +206,6 @@ public class Didymos extends TeamRobot {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public void onMessageReceived(MessageEvent event) {
         Message message = (Message) event.getMessage();
         if (message.isEnemyData()) {
@@ -265,8 +263,10 @@ public class Didymos extends TeamRobot {
                 e.getVelocity() / Rules.getBulletSpeed(FIRE_POWER) * Math.sin(e.getHeadingRadians() - headOnBearing));
         this.setTurnGunRightRadians(Utils.normalRelativeAngle(linearBearing - this.getGunHeadingRadians()));
 
-        // Fire, if suitable.
-        if (e.getDistance() < 150 && this.getGunHeat() == 0) {
+        // Fire, if suitable while avoiding friendly fire.
+        if (e.getDistance() < 150 && this.getGunHeat() == 0
+                && getDistanceFromLine(new Point2D.Double(this.getX(), this.getY()), this.m_enemy,
+                        this.m_friend) > this.getWidth() * 1.5) {
             this.setFire(FIRE_POWER);
         }
     }
@@ -344,5 +344,22 @@ public class Didymos extends TeamRobot {
     private boolean isAssistant() {
         return (this.m_friend != null && this.m_friend.getGoal() != null && this.getEnergy() < this.m_friend.getEnergy()
                 && this.getTime() - this.m_friend.getTurn() < 10);
+    }
+
+    /**
+     * Calculates the distance of a point to a line, defined by two other points.
+     * @param lineCoord1 The start of the line.
+     * @param lineCoord2 The end of the line.
+     * @param point The point for which the distance to the line is to be calculatated.
+     * @return the distance of "point" to the line
+     */
+    private static double getDistanceFromLine(final Point2D.Double lineCoord1, final Point2D.Double lineCoord2,
+            final Point2D.Double point) {
+        // f(x) = ax + by + c
+        final double a = lineCoord2.getX() - lineCoord1.getX();
+        final double b = lineCoord2.getY() - lineCoord1.getY();
+        final double c = lineCoord1.getX() * lineCoord2.getY() - lineCoord2.getX() * lineCoord1.getY();
+
+        return Math.abs(a * point.getX() + b * point.getY() + c) / Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2));
     }
 }
